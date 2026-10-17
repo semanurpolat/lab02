@@ -8,7 +8,7 @@ You will remove the noise in five small steps:
   1. fourier_magnitude(f_shifted)       view the spectrum
   2. reconstruct(f_shifted)             turn k-space back into an image
   3. get_noise_peaks()                  the spike positions, read off the plot
-  4. make_notch_mask(centres, radius)   a mask that zeroes a disc at each spike
+  4. make_notch_mask(centres, radius)  a mask that zeroes a disc at each spike
   5. remove_noise(f_shifted)            put the steps together
 
 Run evaluate_lab02.py after each step to see your progress.
@@ -18,8 +18,10 @@ import numpy as np
 import os
 import sys
 
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from helpers.mridataprocessor import MRIDataProcessor  # noqa: F401
+
 
 class MRIprocessor:
     """MRI noise removal via Fourier-domain notch filtering."""
@@ -36,7 +38,8 @@ class MRIprocessor:
         Returns:
             np.ndarray: 2D float array, log(|f_shifted| + 1).
         """
-        raise NotImplementedError("Implement this method")
+        # log scale, otherwise the centre is so bright you see nothing else
+        return np.log(np.abs(f_shifted) + 1)
 
     def reconstruct(self, f_shifted):
         """Step 2 — convert centred k-space data back into a spatial image.
@@ -47,7 +50,10 @@ class MRIprocessor:
         Returns:
             np.ndarray: 2D float image (magnitude), centred.
         """
-        raise NotImplementedError("Implement this method")
+        # undo the centring, go back to the image, then shift the
+        # scan into the middle (otherwise it comes out in 4 quarters)
+        image = np.fft.ifft2(np.fft.ifftshift(f_shifted))
+        return np.abs(np.fft.fftshift(image))
 
     def get_noise_peaks(self):
         """Step 3 — the (row, col) positions of the two noise spikes.
@@ -58,7 +64,8 @@ class MRIprocessor:
         Returns:
             list of (int, int): [(row, col), (row, col)]
         """
-        raise NotImplementedError("Implement this method")
+        # read off the Step 1 plot, symmetric around (128, 128)
+        return [(148, 147), (108, 109)]
 
     def make_notch_mask(self, centres, radius=2):
         """Step 4 — a mask of ones with a zeroed disc around each centre.
@@ -70,7 +77,13 @@ class MRIprocessor:
         Returns:
             np.ndarray: float array of shape self.shape, values 0 or 1.
         """
-        raise NotImplementedError("Implement this method")
+        rows, cols = self.shape
+        mask = np.ones((rows, cols))
+        R, C = np.ogrid[:rows, :cols]  # R[row, col] = row index, C = col index
+        for r, c in centres:
+            dist = np.sqrt((R - r) ** 2 + (C - c) ** 2)
+            mask[dist <= radius] = 0  # zero out the disc around this spike
+        return mask
 
     def remove_noise(self, f_shifted):
         """Step 5 — remove the noise using the methods above.
@@ -81,4 +94,11 @@ class MRIprocessor:
         Returns:
             tuple: (filtered_img, corrupted_img, fourier_img, mask)
         """
-        raise NotImplementedError("Implement this method")
+        fourier_img = self.fourier_magnitude(f_shifted)
+        corrupted_img = self.reconstruct(f_shifted)
+
+        # notch out the two spikes and rebuild the image
+        mask = self.make_notch_mask(self.get_noise_peaks())
+        filtered_img = self.reconstruct(f_shifted * mask)
+
+        return filtered_img, corrupted_img, fourier_img, mask
